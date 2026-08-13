@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CloudVandana Salesforce CRUD App</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Salesforce CRUD App</h1>
+    <div id="authArea"></div>
+  </header>
+
+  <div id="loggedOutMsg" class="center-msg hidden">
+    <p>Please log in with Salesforce to view and manage records.</p>
+  </div>
+
+  <main id="appMain" class="hidden">
+    <div class="controls">
+      <label for="objectSelect">Object:</label>
+      <select id="objectSelect"></select>
+      <button id="newRecordBtn">+ New Record</button>
+    </div>
+
+    <div id="tableWrapper" class="table-wrapper">
+      <table id="recordsTable">
+        <thead id="tableHead"></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div id="loadingIndicator" class="hidden">Loading more records...</div>
+      <div id="endIndicator" class="hidden">No more records.</div>
+    </div>
+  </main>
+
+  <!-- Modal for create/edit -->
+  <div id="recordModal" class="modal hidden">
+    <div class="modal-content">
+      <h2 id="modalTitle">New Record</h2>
+      <form id="recordForm"></form>
+      <div class="modal-actions">
+        <button id="saveRecordBtn" type="button">Save</button>
+        <button id="cancelModalBtn" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -8,9 +8,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const {
-  SF_CLIENT_ID,
-  SF_CLIENT_SECRET,
-  SF_LOGIN_URL,
   SF_REDIRECT_URI,
   SESSION_SECRET
 } = process.env;
@@ -55,6 +52,7 @@ const OBJECT_CONFIG = {
 };
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(session({
   secret: SESSION_SECRET || 'dev-secret-change-me',
   resave: false,
@@ -70,9 +68,19 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function requireSfConfig(req, res, next) {
+  if (!req.session.sfClientId || !req.session.sfClientSecret) {
+    return res.redirect('/setup');
+  }
+  next();
+}
+
 // ---- Auth status check (frontend calls this on page load) ----
 app.get('/api/me', (req, res) => {
-  res.json({ loggedIn: !!req.session.accessToken });
+  res.json({
+    loggedIn: !!req.session.accessToken,
+    sfConfigured: !!(req.session.sfClientId && req.session.sfClientSecret)
+  });
 });
 
 // ---- Object/field configuration (frontend calls this to build dropdown + table) ----
@@ -80,8 +88,53 @@ app.get('/api/config', (req, res) => {
   res.json(OBJECT_CONFIG);
 });
 
+// ---- Setup Step: let ANY visitor connect their OWN Salesforce org ----
+// This is what makes the app work for any Salesforce account, not just
+// the developer's own org: each visitor supplies the Consumer Key/Secret
+// from an External Client App they create in their own org (same steps
+// as in the README), instead of the server having one hardcoded org.
+app.get('/setup', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html><head><title>Connect Your Salesforce Org</title>
+<link rel="stylesheet" href="/style.css">
+</head><body>
+<header class="topbar"><h1>Salesforce CRUD App</h1></header>
+<div style="max-width:480px;margin:60px auto;padding:24px;background:white;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+  <h2 style="margin-top:0;">Connect your Salesforce org</h2>
+  <p style="color:#555;font-size:14px;">
+    This app works with any Salesforce Developer org. Create a free
+    <a href="https://developer.salesforce.com/signup" target="_blank">Developer Edition</a> org if you
+    don't have one, then create an <strong>External Client App</strong> in it
+    (Setup &rarr; App Manager &rarr; New External Client App) with OAuth enabled.
+    Use this exact Callback URL when creating it:
+  </p>
+  <code style="display:block;background:#f0f2f5;padding:8px;border-radius:4px;margin-bottom:16px;word-break:break-all;">${SF_REDIRECT_URI}</code>
+  <form method="POST" action="/setup">
+    <label style="display:block;margin-bottom:12px;font-size:13px;color:#444;">Consumer Key
+      <input name="clientId" required style="width:100%;padding:8px;margin-top:4px;border:1px solid #ccc;border-radius:4px;" value="${req.session.sfClientId || ''}" />
+    </label>
+    <label style="display:block;margin-bottom:12px;font-size:13px;color:#444;">Consumer Secret
+      <input name="clientSecret" required type="password" style="width:100%;padding:8px;margin-top:4px;border:1px solid #ccc;border-radius:4px;" value="${req.session.sfClientSecret || ''}" />
+    </label>
+    <label style="display:block;margin-bottom:16px;font-size:13px;color:#444;">Login URL
+      <input name="loginUrl" style="width:100%;padding:8px;margin-top:4px;border:1px solid #ccc;border-radius:4px;" value="${req.session.sfLoginUrl || 'https://login.salesforce.com'}" />
+    </label>
+    <button type="submit" class="btn" style="width:100%;">Save & Continue to Login</button>
+  </form>
+</div>
+</body></html>`);
+});
+
+app.post('/setup', (req, res) => {
+  const { clientId, clientSecret, loginUrl } = req.body;
+  req.session.sfClientId = clientId;
+  req.session.sfClientSecret = clientSecret;
+  req.session.sfLoginUrl = loginUrl || 'https://login.salesforce.com';
+  res.redirect('/login');
+});
+
 // ---- OAuth Step 1: send user to Salesforce login (with PKCE) ----
-app.get('/login', (req, res) => {
+app.get('/login', requireSfConfig, (req, res) => {
   // PKCE: generate a random "code_verifier" and its hashed "code_challenge"
   const codeVerifier = crypto.randomBytes(32).toString('base64url');
   const codeChallenge = crypto
@@ -92,9 +145,9 @@ app.get('/login', (req, res) => {
   // Save the verifier in the session so we can use it in the callback step
   req.session.codeVerifier = codeVerifier;
 
-  const authUrl = `${SF_LOGIN_URL}/services/oauth2/authorize?` +
+  const authUrl = `${req.session.sfLoginUrl}/services/oauth2/authorize?` +
     `response_type=code` +
-    `&client_id=${encodeURIComponent(SF_CLIENT_ID)}` +
+    `&client_id=${encodeURIComponent(req.session.sfClientId)}` +
     `&redirect_uri=${encodeURIComponent(SF_REDIRECT_URI)}` +
     `&scope=${encodeURIComponent('api refresh_token id web')}` +
     `&code_challenge=${codeChallenge}` +
@@ -113,12 +166,12 @@ app.get('/oauth/callback', async (req, res) => {
 
   try {
     const tokenRes = await axios.post(
-      `${SF_LOGIN_URL}/services/oauth2/token`,
+      `${req.session.sfLoginUrl}/services/oauth2/token`,
       new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        client_id: SF_CLIENT_ID,
-        client_secret: SF_CLIENT_SECRET,
+        client_id: req.session.sfClientId,
+        client_secret: req.session.sfClientSecret,
         redirect_uri: SF_REDIRECT_URI,
         code_verifier: req.session.codeVerifier
       }),

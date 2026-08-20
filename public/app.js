@@ -27,7 +27,11 @@ async function init() {
   const me = await meRes.json();
 
   if (!me.loggedIn) {
-    authArea.innerHTML = `<a class="btn" href="/login">Login with Salesforce</a>`;
+    if (!me.sfConfigured) {
+      authArea.innerHTML = `<a class="btn" href="/setup">Connect Your Salesforce Org</a>`;
+    } else {
+      authArea.innerHTML = `<a class="btn" href="/login">Login with Salesforce</a>`;
+    }
     appMain.classList.add('hidden');
     loggedOutMsg.classList.remove('hidden');
     return;
